@@ -83,13 +83,14 @@
 //   }
 // }
 
+
 import { NextResponse } from 'next/server'
-import { pusherServer } from '@/lib/pusher-server'
+import { pusher } from '@/lib/pusher-server'
 
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    await pusherServer.trigger('reactions-channel', 'new-reaction', body)
+    await pusher.trigger('reactions-channel', 'new-reaction', body)
     
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -412,12 +412,12 @@
 
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Play, Pause } from 'lucide-react';
-import { pusherClient } from '@/lib/pusher-client';
-import type { Members, PresenceChannel } from 'pusher-js';
+import { pusherClient, getPresenceChannel } from '@/lib/pusher-client';
+import type { PresenceChannel } from 'pusher-js';
 
 type Reaction = {
   id: number;
@@ -433,6 +433,7 @@ interface VideoCompanionProps {
 }
 
 const VideoCompanion = ({ username }: VideoCompanionProps) => {
+  const channelRef = useRef<PresenceChannel | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isCommunityMode, setIsCommunityMode] = useState(false);
@@ -440,69 +441,71 @@ const VideoCompanion = ({ username }: VideoCompanionProps) => {
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [activeReactions, setActiveReactions] = useState<Reaction[]>([]);
 
-  // Initialize Pusher and fetch initial data
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const fetchInitialReactions = async () => {
       try {
-        // Fetch initial reactions
-        const reactionsResponse = await fetch('/api/reactions');
-        const reactionsData = await reactionsResponse.json();
-        if (Array.isArray(reactionsData)) {
-          setReactions(reactionsData);
+        const response = await fetch('/api/reactions');
+        const data = await response.json();
+        
+        if (Array.isArray(data)) {
+          setReactions(data);
+        } else {
+          console.error('Expected array of reactions but got:', data);
+          setReactions([]);
         }
-
-        // Subscribe to presence channel for user tracking
-        const channel = pusherClient.subscribe('presence-video-companion') as PresenceChannel;
-
-        // Handle subscription succeeded
-        channel.bind('pusher:subscription_succeeded', (members: Members) => {
-          // const users = Array.from(members.members).map(([_, member]: [string, any]) => member.username);
-          const users = Object.values(members.members).map((member: any) => member.username);
-          setActiveUsers(users);
-        });
-
-        // Handle member added
-        channel.bind('pusher:member_added', (member: any) => {
-          setActiveUsers(prev => [...prev, member.info.username]);
-        });
-
-        // Handle member removed
-        channel.bind('pusher:member_removed', (member: any) => {
-          setActiveUsers(prev => prev.filter(username => username !== member.info.username));
-        });
-
-        // Handle new reactions
-        channel.bind('reaction', (data: Reaction) => {
-          setReactions(prev => [...prev, data]);
-        });
-
-        // Handle playback sync
-        channel.bind('playback-update', (data: { isPlaying: boolean; currentTime: number }) => {
-          setIsPlaying(data.isPlaying);
-          setCurrentTime(data.currentTime);
-        });
-
-        // Send initial presence data
-        await fetch('/api/presence', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username }),
-        });
-
-        // Cleanup on unmount
-        return () => {
-          channel.unbind_all();
-          pusherClient.unsubscribe('presence-video-companion');
-        };
       } catch (error) {
-        console.error('Error initializing:', error);
+        console.error('Error fetching reactions:', error);
+        setReactions([]);
       }
     };
 
-    fetchInitialData();
+    const initializePresenceChannel = async () => {
+      // Initialize Pusher presence channel
+      await fetch('/api/pusher/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+
+      channelRef.current = getPresenceChannel();
+      
+      // Handle presence events
+      channelRef.current.bind('pusher:subscription_succeeded', (members: any) => {
+        const usernames = Object.values(members.members).map((member: any) => member.username);
+        setActiveUsers(usernames);
+      });
+
+      channelRef.current.bind('pusher:member_added', (member: any) => {
+        setActiveUsers(prev => [...prev, member.info.username]);
+      });
+
+      channelRef.current.bind('pusher:member_removed', (member: any) => {
+        setActiveUsers(prev => prev.filter(u => u !== member.info.username));
+      });
+
+      // Handle reactions
+      channelRef.current.bind('client-reaction', (reaction: Reaction) => {
+        setReactions(prev => [...prev, reaction]);
+      });
+
+      // Handle playback sync
+      channelRef.current.bind('client-playback-update', (data: { isPlaying: boolean; currentTime: number }) => {
+        setIsPlaying(data.isPlaying);
+        setCurrentTime(data.currentTime);
+      });
+    };
+
+    fetchInitialReactions();
+    initializePresenceChannel();
+
+    return () => {
+      if (channelRef.current) {
+        channelRef.current.unbind_all();
+        pusherClient.unsubscribe('presence-reactions');
+      }
+    };
   }, [username]);
 
-  // Handle playback state
   useEffect(() => {
     let interval: NodeJS.Timeout | undefined;
     
@@ -513,16 +516,7 @@ const VideoCompanion = ({ username }: VideoCompanionProps) => {
             clearInterval(interval);
             return prev;
           }
-          const newTime = prev + 1;
-          
-          // Broadcast time update through Pusher
-          fetch('/api/playback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ isPlaying: true, currentTime: newTime }),
-          });
-          
-          return newTime;
+          return prev + 1;
         });
       }, 1000);
     }
@@ -534,7 +528,6 @@ const VideoCompanion = ({ username }: VideoCompanionProps) => {
     };
   }, [isPlaying]);
 
-  // Handle active reactions display
   useEffect(() => {
     if (isCommunityMode) {
       const currentReactions = reactions.filter(reaction => reaction.timestamp === currentTime);
@@ -582,39 +575,44 @@ const VideoCompanion = ({ username }: VideoCompanionProps) => {
     };
   
     try {
-      await fetch('/api/reactions', {
+      // Save to database
+      const response = await fetch('/api/reactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newReaction)
       });
+  
+      if (response.ok) {
+        // Update local state
+        setReactions(prev => [...prev, newReaction]);
+        
+        // Broadcast to other clients
+        if (channelRef.current) {
+          channelRef.current.trigger('client-reaction', newReaction);
+        }
+      }
     } catch (error) {
       console.error('Error sending reaction:', error);
     }
   };
 
-  const handlePlaybackChange = async (newIsPlaying: boolean) => {
+  const handlePlaybackChange = (newIsPlaying: boolean) => {
     setIsPlaying(newIsPlaying);
-    try {
-      await fetch('/api/playback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPlaying: newIsPlaying, currentTime }),
+    if (channelRef.current) {
+      channelRef.current.trigger('client-playback-update', {
+        isPlaying: newIsPlaying,
+        currentTime
       });
-    } catch (error) {
-      console.error('Error updating playback state:', error);
     }
   };
 
-  const handleTimeUpdate = async (newTime: number) => {
+  const handleTimeUpdate = (newTime: number) => {
     setCurrentTime(newTime);
-    try {
-      await fetch('/api/playback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPlaying, currentTime: newTime }),
+    if (channelRef.current) {
+      channelRef.current.trigger('client-playback-update', {
+        isPlaying,
+        currentTime: newTime
       });
-    } catch (error) {
-      console.error('Error updating time:', error);
     }
   };
 
@@ -624,7 +622,7 @@ const VideoCompanion = ({ username }: VideoCompanionProps) => {
       <span className="text-sm">{getReactionMessage(reaction.type)}</span>
     </div>
   );
-
+  
   return (
     <Card className="w-full max-w-4xl relative">
       {isCommunityMode && (
