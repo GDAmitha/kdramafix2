@@ -5,9 +5,9 @@
     "framework": "nextjs",
     "outputDirectory": ".next",
     "functions": {
-    "api/test-mongodb/route.ts": {
-      "memory": 1024,
-      "maxDuration": 10
+      "src/app/api/test-mongodb/route.ts": {
+        "memory": 1024,
+        "maxDuration": 10
+      }
     }
-  }
   }
