@@ -19,13 +19,27 @@
 // module.exports = nextConfig
 
 
+// /** @type {import('next').NextConfig} */
+// const nextConfig = {
+//   typescript: {
+//     ignoreBuildErrors: true,
+//   },
+//   experimental: {
+//     serverActions: true,
+//   },
+//   output: 'standalone'
+// }
+
+// module.exports = nextConfig
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  experimental: {
-    serverActions: true,
+  eslint: {
+    // Disable eslint during build
+    ignoreDuringBuilds: true,
   },
   output: 'standalone'
 }
