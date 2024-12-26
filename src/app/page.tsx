@@ -72,10 +72,21 @@ export default function Home() {
   const [user, setUser] = useState<string | null>(null);
 
   // Check for existing user on load
+  // useEffect(() => {
+  //   const savedUser = localStorage.getItem('username');
+  //   if (savedUser) {
+  //     setUser(savedUser);
+  //   }
+  // }, []);
+  
   useEffect(() => {
-    const savedUser = localStorage.getItem('username');
-    if (savedUser) {
-      setUser(savedUser);
+    try {
+      const savedUser = localStorage.getItem('username');
+      if (savedUser) {
+        setUser(savedUser);
+      }
+    } catch (error) {
+      console.error('Error accessing localStorage:', error);
     }
   }, []);
 
