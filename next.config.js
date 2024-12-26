@@ -47,6 +47,32 @@
 // module.exports = nextConfig
 
 
+// /** @type {import('next').NextConfig} */
+// const nextConfig = {
+//   typescript: {
+//     ignoreBuildErrors: true,
+//   },
+//   eslint: {
+//     ignoreDuringBuilds: true,
+//   },
+//   output: 'standalone',
+//   experimental: {
+//     appDir: true
+//   },
+//   async redirects() {
+//     return [
+//       {
+//         source: '/',
+//         destination: '/home',
+//         permanent: true,
+//       },
+//     ]
+//   }
+// }
+
+// module.exports = nextConfig
+
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -54,10 +80,6 @@ const nextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: true,
-  },
-  output: 'standalone',
-  experimental: {
-    appDir: true
   },
   async redirects() {
     return [
